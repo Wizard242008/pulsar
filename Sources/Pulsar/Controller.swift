@@ -44,7 +44,11 @@ final class Controller: NSObject {
     /// sweep can legitimately see only one of them. Treating that first sweep as the whole restore
     /// pass put every later window on the current desktop.
     let launchedAt = Date()
-    var inRestoreWindow: Bool { Date().timeIntervalSince(launchedAt) < 20 }
+    /// Last time Accessibility went quiet (a call, a Space transition, a hung sweep) or the store
+    /// emptied. Windows reappearing shortly after one of these are returning windows, so they are
+    /// placed from the saved map instead of being dumped on the current desktop.
+    var lastOutageAt = Date.distantPast
+    var inRestoreWindow: Bool { Date().timeIntervalSince(max(launchedAt, lastOutageAt)) < 20 }
 
     /// `blind` debug command: pretend every app refused to answer until this moment.
     var blindUntil = Date.distantPast
@@ -340,10 +344,12 @@ final class Controller: NSObject {
                     if let lost = recentlyLost[hash], Date().timeIntervalSince(lost.at) < lostGrace {
                         win.workspace = lost.workspace
                         recentlyLost[hash] = nil
-                    } else if inRestoreWindow, let remembered = savedWindowWorkspace(for: win) {
-                        // Seen before, by this exact title: it goes home even if it turned up after
-                        // the first sweep. The title-only lookup keeps a genuinely new window of a
-                        // known app where the user is.
+                    } else if inRestoreWindow, let remembered = savedWorkspace(for: win) {
+                        // Seen before — or at least its app was. Titles drift (a Slack channel's
+                        // unread count, a browser's page title), so the exact-title key is only the
+                        // first attempt; the app's remembered workspace is the fallback that
+                        // actually anchors those windows. This applies inside the settling window
+                        // only, so a window opened later still lands where the user is.
                         win.workspace = remembered
                     } else if !hasCompletedFirstRefresh, let remembered = savedWorkspace(for: win) {
                         win.workspace = remembered
@@ -356,6 +362,11 @@ final class Controller: NSObject {
 
         for win in discovered {
             store.add(win, to: win.workspace)
+        }
+        // Nothing answered: the Accessibility system is quiet. Whatever gets discovered in the next
+        // few seconds is a returning window, not a new one.
+        if responsive.isEmpty, !store.byHash.isEmpty {
+            lastOutageAt = Date()
         }
         if inSpaceTransition {
             // Windows stay tracked through the transition; the delayed refresh that follows it does
@@ -444,9 +455,13 @@ final class Controller: NSObject {
                 needsConfirmation = true
                 continue
             }
+            // The app did not answer this sweep. That is silence, not evidence — a Space
+            // transition, a full-screen animation, a call banner, or simply a busy app. The window
+            // is only forgotten if the window server no longer has it, which is the one source that
+            // keeps answering when Accessibility does not.
             let misses = (missedScans[hash] ?? 0) + 1
             missedScans[hash] = misses
-            if misses >= 2 {
+            if misses >= 3, cgWindowCount(pid: win.pid) == 0 {
                 doomed.append(win)
             } else {
                 needsConfirmation = true
@@ -456,6 +471,9 @@ final class Controller: NSObject {
             recentlyLost[win.hash] = (win.workspace, Date())
             store.remove(win)
             missedScans[win.hash] = nil
+        }
+        if store.byHash.isEmpty, !doomed.isEmpty {
+            lastOutageAt = Date()
         }
         // A single miss means "the scan may have failed"; confirm quickly rather than waiting for
         // the next unrelated event, so a closed window never leaves a permanent hole.
@@ -734,6 +752,22 @@ final class Controller: NSObject {
 
     private func isParked(_ frame: CGRect, visible: CGRect) -> Bool {
         frame.minY >= visible.maxY - 2 || frame.maxX <= visible.minX + 2
+    }
+
+    /// How many windows the window server still attributes to this process.
+    ///
+    /// Used as ground truth when Accessibility goes quiet. `CGWindowListCopyWindowInfo` keeps
+    /// answering during Space transitions, full-screen animations and hung apps, so it can tell
+    /// "the app has no windows" apart from "the app is not talking to us right now".
+    private func cgWindowCount(pid: pid_t) -> Int {
+        guard let list = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] else {
+            return -1
+        }
+        var count = 0
+        for entry in list where (entry[kCGWindowOwnerPID as String] as? pid_t) == pid {
+            count += 1
+        }
+        return count
     }
 
     /// A frame that differs by a point or less is the same frame.

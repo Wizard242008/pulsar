@@ -76,4 +76,16 @@ rm -rf "$DEST"
 cp -R "$APP" "$DEST"
 rm -rf "$APP"          # leave exactly one bundle on disk
 
+# Re-register with LaunchServices.
+#
+# Replacing the bundle in place leaves a stale record for the path. On the next launch the window
+# server compares the new signature against it, decides the requirement is violated, and kills the
+# process immediately (CODESIGNING / "Launch Constraint Violation", SIGKILL, no log output). The app
+# then looks like it simply died, and the desktop is left with no window manager.
+LSR="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+if [ -x "$LSR" ]; then
+    "$LSR" -u "$DEST" >/dev/null 2>&1 || true
+    "$LSR" -f "$DEST" >/dev/null 2>&1 || true
+fi
+
 echo "==> done: $DEST"

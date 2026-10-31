@@ -212,6 +212,17 @@ extension Controller {
                     self?.refresh()
                 }
             }
+        case "forget":
+            // Drop every window from the store without remembering any of them, then rescan: the
+            // worst case for placement, because the only thing left to place windows by is the
+            // saved map. They must come back to their own workspaces, not to the current one.
+            let count = store.byHash.count
+            for win in Array(store.byHash.values) {
+                store.remove(win)
+            }
+            lastOutageAt = Date()
+            log("forget: dropped \(count) windows from the store")
+            refresh()
         case "focus":
             switch arg {
             case "left": focus(.left); case "right": focus(.right)
