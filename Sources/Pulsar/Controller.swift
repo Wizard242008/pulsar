@@ -39,6 +39,11 @@ final class Controller: NSObject {
     var recentlyLost: [CFHashCode: (workspace: String, at: Date)] = [:]
     private let lostGrace: TimeInterval = 600
 
+    /// Same idea keyed by app, for the case where the AX element *and* its title both change while
+    /// the window itself does not. Only used when the app has no other tracked window, so it can
+    /// never pull a genuinely new window to an old desktop.
+    var lostByApp: [String: (workspace: String, at: Date)] = [:]
+
     /// When the app started. Windows that turn up shortly afterwards are returning windows, not new
     /// ones: after an update relaunch the apps finish registering over several seconds, so the first
     /// sweep can legitimately see only one of them. Treating that first sweep as the whole restore
@@ -232,6 +237,9 @@ final class Controller: NSObject {
             // fires when the user swipes into or out of a full-screen Space, so we can
             // stop/ resume managing that window at the right moment
             NSWorkspace.activeSpaceDidChangeNotification,
+            // A wake is a bigger version of the same event: every app's Accessibility registration
+            // is rebuilt, so the first sweeps after it are a mixed picture of old and new elements.
+            NSWorkspace.didWakeNotification,
         ]
         for name in names {
             let token = nc.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
@@ -249,6 +257,8 @@ final class Controller: NSObject {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
                         self?.refresh()
                     }
+                } else if name == NSWorkspace.didWakeNotification {
+                    self.handleWake()
                 } else {
                     self.scheduleRefresh()
                 }
@@ -267,6 +277,26 @@ final class Controller: NSObject {
         let work = DispatchWorkItem { [weak self] in self?.refresh() }
         pendingRefresh = work
         DispatchQueue.main.asyncAfter(deadline: .now() + refreshDelay, execute: work)
+    }
+
+    /// Wake from sleep.
+    ///
+    /// Everything the manager relies on is rebuilt at once: every app re-registers with the
+    /// Accessibility server, the display comes back, and whichever window was full screen — a
+    /// YouTube video, typically — returns to its Space. The first sweeps during that are a mixed
+    /// picture of stale elements that no longer answer and new ones that do, which is precisely the
+    /// state that used to be read as "every window closed". Treat the wake as an outage, suppress
+    /// pruning through the settling period, and scan once things have come back.
+    func handleWake() {
+        log("wake: display returned, resettling")
+        lastOutageAt = Date()
+        spaceChangeAt = Date()
+        for delay in [1.5, 3.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.spaceChangeAt = Date()
+                self?.refresh()
+            }
+        }
     }
 
     // MARK: - refresh (discovery)
@@ -294,7 +324,12 @@ final class Controller: NSObject {
 
         var live = Set<CFHashCode>()
         var responsive = Set<pid_t>()
-        var discovered: [Win] = []
+        // Elements found this sweep that are not tracked yet. They are adopted only *after* pruning,
+        // so a window whose AX element was re-created — which is what a Space transition does — can
+        // read the workspace its predecessor was recorded under. Adopting first meant the new
+        // element could not see the old one, and every window drifted onto the current desktop.
+        var found: [(el: AXUIElement, pid: pid_t, app: NSRunningApplication)] = []
+        var seen = Set<CFHashCode>()
 
         for app in NSWorkspace.shared.runningApplications {
             guard app.activationPolicy == .regular,
@@ -315,7 +350,7 @@ final class Controller: NSObject {
                     // out of scope: never tiled, never parked. Remember where it was, so leaving
                     // full screen puts it back on its own workspace instead of this one.
                     if let tracked = store.byHash[hash] {
-                        recentlyLost[hash] = (tracked.workspace, Date())
+                        remember(tracked)
                         store.remove(tracked)
                     }
                     continue
@@ -328,41 +363,12 @@ final class Controller: NSObject {
                     // trusting a cached frame is what made windows overlap and stay overlapped.
                     if let actual = AX.currentFrame(el) { tracked.frame = actual }
                     if AX.bool(el, kAXFocusedAttribute as CFString) == true { lastFocused = tracked }
-                } else if !discovered.contains(where: { $0.hash == hash }) {
-                    let win = Win(el: el, pid: pid, app: app, workspace: store.current)
-                    win.frame = AX.currentFrame(el) ?? .zero
-                    seedMinimum(for: win)
-                    // Restoring at launch puts a window back where it was last time; a window
-                    // opened later belongs where the user is now. Using the remembered workspace
-                    // for both meant a new window appeared on some other desktop — parked, so
-                    // opening it looked like nothing happened.
-                    //
-                    // A window we dropped moments ago (full screen, a stalled sweep) is the one
-                    // exception: it comes back to its own workspace, not to whichever one happens
-                    // to be current. Without this, exiting full screen during a call gathered
-                    // every window onto a single desktop.
-                    if let lost = recentlyLost[hash], Date().timeIntervalSince(lost.at) < lostGrace {
-                        win.workspace = lost.workspace
-                        recentlyLost[hash] = nil
-                    } else if inRestoreWindow, let remembered = savedWorkspace(for: win) {
-                        // Seen before — or at least its app was. Titles drift (a Slack channel's
-                        // unread count, a browser's page title), so the exact-title key is only the
-                        // first attempt; the app's remembered workspace is the fallback that
-                        // actually anchors those windows. This applies inside the settling window
-                        // only, so a window opened later still lands where the user is.
-                        win.workspace = remembered
-                    } else if !hasCompletedFirstRefresh, let remembered = savedWorkspace(for: win) {
-                        win.workspace = remembered
-                    }
-                    if let weight = savedWeight(for: win) { win.weight = weight }
-                    discovered.append(win)
+                } else if seen.insert(hash).inserted {
+                    found.append((el, pid, app))
                 }
             }
         }
 
-        for win in discovered {
-            store.add(win, to: win.workspace)
-        }
         // Nothing answered: the Accessibility system is quiet. Whatever gets discovered in the next
         // few seconds is a returning window, not a new one.
         if responsive.isEmpty, !store.byHash.isEmpty {
@@ -371,6 +377,7 @@ final class Controller: NSObject {
         if inSpaceTransition {
             // Windows stay tracked through the transition; the delayed refresh that follows it does
             // the pruning with reliable data.
+            adopt(found)
             apply()
             return
         }
@@ -384,8 +391,11 @@ final class Controller: NSObject {
         for pid in axObservers.keys where !livePids.contains(pid) {
             axObservers.removeValue(forKey: pid)
         }
+        }
+        adopt(found)
+        if only == nil {
             // Parking costs a read per window on other workspaces; only worth re-verifying when the
-            // window set may actually have changed.
+            // window set may actually have changed. Newly adopted windows need it immediately.
             parkOtherWorkspaces()
         }
         apply()
@@ -401,6 +411,7 @@ final class Controller: NSObject {
         }
         if only == nil {
             recentlyLost = recentlyLost.filter { Date().timeIntervalSince($0.value.at) < lostGrace }
+            lostByApp = lostByApp.filter { Date().timeIntervalSince($0.value.at) < lostGrace }
         }
         scheduleSave()
 
@@ -413,6 +424,49 @@ final class Controller: NSObject {
     /// Re-checked on each refresh rather than remembered, because apps routinely restore their own
     /// saved frame when reactivated — a one-shot park leaves last desktop's windows sitting on top
     /// of this one.
+    /// Remember where a window was, before it is dropped.
+    private func remember(_ win: Win) {
+        let now = Date()
+        recentlyLost[win.hash] = (win.workspace, now)
+        lostByApp[appKey(win)] = (win.workspace, now)
+    }
+
+    /// Turn the elements found this sweep into tracked windows.
+    ///
+    /// Runs *after* pruning, so anything dropped in this same sweep is already remembered and a
+    /// re-created element can inherit its predecessor's workspace. Without that ordering a Space
+    /// transition — which replaces the AX elements — looked like every window closing and every
+    /// window opening somewhere new.
+    private func adopt(_ found: [(el: AXUIElement, pid: pid_t, app: NSRunningApplication)]) {
+        for item in found {
+            let win = Win(el: item.el, pid: item.pid, app: item.app, workspace: store.current)
+            win.frame = AX.currentFrame(item.el) ?? .zero
+            seedMinimum(for: win)
+
+            if let lost = recentlyLost[win.hash], Date().timeIntervalSince(lost.at) < lostGrace {
+                win.workspace = lost.workspace
+                recentlyLost[win.hash] = nil
+            } else if let appLost = lostByApp[appKey(win)],
+                      Date().timeIntervalSince(appLost.at) < lostGrace,
+                      !store.byHash.values.contains(where: { $0.pid == win.pid }) {
+                // The app's only window was dropped moments ago: this is that window with a new
+                // element. It goes back where it was rather than to whatever desktop is current.
+                win.workspace = appLost.workspace
+                lostByApp[appKey(win)] = nil
+            } else if inRestoreWindow || !hasCompletedFirstRefresh,
+                      let remembered = savedWorkspace(for: win) {
+                // Seen before — or at least its app was. Titles drift (a Slack channel's unread
+                // count, a browser's page title), so the exact-title key is only the first attempt;
+                // the app's remembered workspace is the fallback that anchors those windows. This
+                // applies inside the settling window only, so a window opened later still lands
+                // where the user is.
+                win.workspace = remembered
+            }
+            if let weight = savedWeight(for: win) { win.weight = weight }
+            store.add(win, to: win.workspace)
+        }
+    }
+
     /// Drop windows that are really gone — but not the ones a scan merely failed to see.
     ///
     /// A full-screen transition, a Space switch or a busy app can make `AXWindows` return nothing
@@ -468,7 +522,7 @@ final class Controller: NSObject {
             }
         }
         for win in doomed {
-            recentlyLost[win.hash] = (win.workspace, Date())
+            remember(win)
             store.remove(win)
             missedScans[win.hash] = nil
         }

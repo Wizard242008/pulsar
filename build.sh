@@ -88,4 +88,12 @@ if [ -x "$LSR" ]; then
     "$LSR" -f "$DEST" >/dev/null 2>&1 || true
 fi
 
+# Start it again through LaunchServices rather than `launchctl kickstart`.
+#
+# After the bundle is replaced, a loaded LaunchAgent still holds the *old* binary's metadata, and
+# kickstart dies instantly with CODESIGNING / "Launch Constraint Violation" while `open` starts the
+# new bundle fine. Launching via `open` also means the window manager is back immediately instead of
+# leaving the desktop unmanaged until the next login.
+open -a "$DEST" >/dev/null 2>&1 || true
+
 echo "==> done: $DEST"

@@ -200,6 +200,7 @@ extension Controller {
         case "probe": parkProbe()
         case "ws":    switchWorkspace(arg)
         case "move":  moveToWorkspace(arg)
+        case "wake":  handleWake()
         case "blind":
             // Simulate an Accessibility outage: every app stops answering for N seconds. This is
             // what a phone call or a full-screen animation looks like to the scanner, and it is the
