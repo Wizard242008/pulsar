@@ -482,6 +482,20 @@ def _():
         ok(r["w"] > 0 and r["h"] > 0, "tiny panes must stay positive")
 
 
+@test("grid_minimums_larger_than_screen", "layout")
+def _():
+    # Six windows whose minimums add up to 2800 pt on a 1019 pt screen. The layout must divide
+    # evenly: an earlier version let the panes run past the bottom edge, which is how six windows
+    # ended up on one desktop with the last two unreachable and one squashed to a sliver.
+    frames = [dict(x=c["x"], y=c["y"], w=c["w"], h=c["h"]) for c in case("gridOverflow")]
+    eq(len(frames), 6, "six panes")
+    no_overlap(frames, "over-subscribed column")
+    bottom = max(r["y"] + r["h"] for r in frames)
+    ok(bottom <= 1019 + 1, f"panes run past the visible frame (bottom={bottom})")
+    smallest = min(r["h"] for r in frames)
+    ok(smallest >= 100, f"a pane was squashed to {smallest} pt")
+
+
 @test("layout_column_preference", "layout")
 def _():
     cols = LAYOUT["columns"]

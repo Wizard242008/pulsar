@@ -58,6 +58,9 @@ cases.append(("grid4min", grid(4, 1680, 1019, mins: [660, 660, 100, 100])))
 cases.append(("gridForced2", grid(6, 1680, 1019, columns: 2)))
 cases.append(("gridForced1", grid(5, 1680, 1019, columns: 1)))
 cases.append(("gridTiny", grid(4, 320, 240)))
+// Minimums that cannot all fit on the screen: the layout must divide evenly rather than push the
+// last panes off the bottom edge (the "six windows on one desktop" incident).
+cases.append(("gridOverflow", grid(6, 1680, 1019, mins: [620, 660, 600, 400, 320, 200], columns: 1)))
 
 // --- neighbour logic ---
 var neighbours: [String: [String: Int?]] = [:]

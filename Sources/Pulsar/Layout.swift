@@ -7,15 +7,23 @@ import CoreGraphics
 /// for a window's minimum, so a layout that divides the screen evenly can hand a window a pane
 /// smaller than it accepts; the app then keeps its larger size and overlaps its neighbour.
 /// Everything here is written so that (a) known minimums are respected, and (b) when the minimums
-/// cannot all fit, panes run off the trailing edge instead of piling on top of one another.
+/// cannot all fit, the screen is divided evenly instead of piling panes on top of one another.
 enum Layout {
+
+    /// Minimum pane size assumed for a window whose real minimum has never been observed.
+    ///
+    /// It used to be 1 pt, which meant an over-subscribed desktop could legally hand a window a
+    /// 1-pixel sliver (kitty did exactly that). A guess large enough to stay grabbable keeps the
+    /// layout honest: if the minimums can't fit, `slice` divides evenly instead.
+    static let unknownMinimum: CGFloat = 44
 
     /// Divide `total` among weighted slots, respecting per-slot minimums (water-filling).
     ///
     /// Slots that cannot get their minimum at the proportional share are pinned to it, and the
-    /// remaining space is redistributed among the rest. If the minimums alone exceed `total`, the
-    /// sum of the result exceeds `total` deliberately: panes then run past the screen edge rather
-    /// than overlap, because the caller places each pane after the previous one.
+    /// remaining space is redistributed among the rest. If the minimums alone exceed `total`, an
+    /// even split is used instead: panes stay fully on-screen. Overflowing past the bottom edge
+    /// (the old behaviour) put windows where the user could not reach them, and the app's own
+    /// geometry check then refused the frame anyway.
     static func slice(weights: [CGFloat], minimums: [CGFloat], total: CGFloat) -> [CGFloat] {
         let n = weights.count
         guard n > 0 else { return [] }
@@ -49,6 +57,14 @@ enum Layout {
             for i in pending { result[i] = max(safeWeights[i] * scale, 1) }
         } else {
             for i in pending { result[i] = safeMins[i] }
+        }
+
+        // Over-subscribed: the minimums can't all be honoured. Divide evenly so every pane stays
+        // visible instead of the last ones falling off the bottom of the screen.
+        let used = result.reduce(0, +)
+        if total > 0, used > total + 0.5 {
+            let even = total / CGFloat(n)
+            for i in 0..<n { result[i] = even }
         }
         return result
     }

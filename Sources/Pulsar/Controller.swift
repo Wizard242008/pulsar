@@ -407,6 +407,12 @@ final class Controller: NSObject {
         if !store.byHash.isEmpty {
             hasCompletedFirstRefresh = true
         } else {
+            // Nothing tracked at all. Keep sliding the outage clock: while the store is empty the
+            // restore window would otherwise run out (it only refreshes when windows exist), and
+            // the first sweep that finally sees the windows — after the lock screen, typically —
+            // would adopt every one of them onto the current desktop. That is exactly the
+            // "everything collapsed onto one workspace" incident.
+            lastOutageAt = Date()
             log("refresh: empty sweep, still waiting for the restore pass")
         }
         if only == nil {
@@ -859,8 +865,8 @@ final class Controller: NSObject {
         // The grid keeps panes usable and still partitions the screen exactly.
         adoptExternalSizes(current)
 
-        let minWidths = current.map { store.minWidth[$0.hash] ?? 1 }
-        let minHeights = current.map { store.minHeight[$0.hash] ?? 1 }
+        let minWidths = current.map { store.minWidth[$0.hash] ?? Layout.unknownMinimum }
+        let minHeights = current.map { store.minHeight[$0.hash] ?? Layout.unknownMinimum }
 
         // 1–2 windows: a plain split (this is how the machine is actually used).
         // 3+: a grid. Slicing one row thin enough for 7 windows drops panes below the minimum
