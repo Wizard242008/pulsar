@@ -16,28 +16,56 @@ extension Controller {
             return
         }
 
-        let width: CGFloat = 460
-        let margin: CGFloat = 20
+        // A scroll view, because this window now has enough rows to outgrow a laptop screen, and the
+        // previous fixed-height stack simply clipped whatever did not fit. Width is fixed so the
+        // wrapping descriptions stay readable; height is capped to the screen it opens on.
+        let width: CGFloat = 560
+        let margin: CGFloat = 22
+
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 520),
+                              styleMask: [.titled, .closable, .resizable],
+                              backing: .buffered, defer: false)
+        window.title = "Pulsar Settings"
+        window.isReleasedWhenClosed = false
+        window.minSize = NSSize(width: 520, height: 360)
+
+        let scroll = NSScrollView()
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+
+        let content = FlippedView()
+        content.translatesAutoresizingMaskIntoConstraints = false
+
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 0
-        stack.edgeInsets = NSEdgeInsets(top: 18, left: 0, bottom: 18, right: 0)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(stack)
 
-        // Every row is pinned to the same left and right margins by hand. Relying on the stack's
-        // alignment to do it produced rows at three different left edges.
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 18),
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: margin),
+            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -margin),
+            stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -18),
+        ])
+
+        // Rows are pinned to both margins by hand: the stack's own alignment produced three
+        // different left edges, and a centered popup is easier to constrain directly.
         @discardableResult
         func add(_ view: NSView, spacingAfter: CGFloat) -> NSView {
             stack.addArrangedSubview(view)
             view.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
-                view.leadingAnchor.constraint(equalTo: stack.leadingAnchor, constant: margin),
-                view.trailingAnchor.constraint(equalTo: stack.trailingAnchor, constant: -margin),
+                view.leadingAnchor.constraint(equalTo: stack.leadingAnchor),
+                view.trailingAnchor.constraint(equalTo: stack.trailingAnchor),
             ])
             stack.setCustomSpacing(spacingAfter, after: view)
             return view
         }
-        stack.translatesAutoresizingMaskIntoConstraints = false
 
         func heading(_ text: String) -> NSView {
             let label = NSTextField(labelWithString: text)
@@ -54,7 +82,6 @@ extension Controller {
             let detail = NSTextField(wrappingLabelWithString: note)
             detail.font = .systemFont(ofSize: 11)
             detail.textColor = .secondaryLabelColor
-            detail.preferredMaxLayoutWidth = width - margin * 2 - 20
 
             for view in [box, detail] as [NSView] {
                 view.translatesAutoresizingMaskIntoConstraints = false
@@ -72,25 +99,44 @@ extension Controller {
             return container
         }
 
-        add(heading("BEHAVIOUR"), spacingAfter: 6)
+        /// A horizontal row of buttons that wraps by shrinking its titles rather than clipping.
+        func buttonRow(_ items: [(String, Selector)]) -> NSView {
+            let row = NSStackView()
+            row.orientation = .horizontal
+            row.spacing = 8
+            row.alignment = .centerY
+            row.distribution = .fillProportionally
+            for (title, action) in items {
+                let button = NSButton(title: title, target: self, action: action)
+                button.bezelStyle = .rounded
+                button.setContentHuggingPriority(.defaultLow, for: .horizontal)
+                button.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+                row.addArrangedSubview(button)
+            }
+            return row
+        }
 
-        let follow = option("Follow an app to its workspace", on: followAppAcrossWorkspaces,
-                            action: #selector(settingsToggleFollow),
-                            note: "Clicking an app in the Dock, or reaching it with Cmd-Tab, jumps to the workspace holding its window.")
-        add(follow, spacingAfter: 10)
+        // MARK: BEHAVIOUR
 
-        let hover = option("Focus follows mouse", on: focusFollowsMouse,
-                           action: #selector(settingsToggleHover),
-                           note: "Moving the pointer over a window focuses it. Costs nothing while the mouse is still; each focus change costs about 10 ms.")
-        add(hover, spacingAfter: 10)
+        add(heading("BEHAVIOUR"), spacingAfter: 8)
+        add(option("Follow an app to its workspace", on: followAppAcrossWorkspaces,
+                   action: #selector(settingsToggleFollow),
+                   note: "Clicking an app in the Dock, or reaching it with Cmd-Tab, jumps to the workspace holding its window."), spacingAfter: 10)
+        add(option("Focus follows mouse", on: focusFollowsMouse,
+                   action: #selector(settingsToggleHover),
+                   note: "Moving the pointer over a window focuses it. Costs nothing while the mouse is still; each focus change costs about 10 ms."), spacingAfter: 10)
+        add(option("Restore my layout at launch", on: restoreOnLaunch,
+                   action: #selector(settingsToggleRestore),
+                   note: "Puts windows back on their workspaces and reopens the workspace you were using."), spacingAfter: 10)
+        let whatsNewOn = UserDefaults.standard.object(forKey: "showWhatsNew") == nil
+            || UserDefaults.standard.bool(forKey: "showWhatsNew")
+        add(option("Show what's new after an update", on: whatsNewOn,
+                   action: #selector(settingsToggleWhatsNew),
+                   note: "A short note listing the fixes in the version you just installed. Never shown on an ordinary launch."), spacingAfter: 22)
 
-        let restore = option("Restore my layout at launch", on: restoreOnLaunch,
-                             action: #selector(settingsToggleRestore),
-                             note: "Puts windows back on their workspaces and reopens the workspace you were using.")
-        add(restore, spacingAfter: 20)
+        // MARK: KEYS
 
         add(heading("KEYS"), spacingAfter: 8)
-
         let modifierRow = NSView()
         let modifierLabel = NSTextField(labelWithString: "Modifier for all shortcuts")
         let popup = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -114,69 +160,90 @@ extension Controller {
             popup.bottomAnchor.constraint(equalTo: modifierRow.bottomAnchor),
             popup.leadingAnchor.constraint(greaterThanOrEqualTo: modifierLabel.trailingAnchor, constant: 12),
         ])
-        add(modifierRow, spacingAfter: 4)
+        add(modifierRow, spacingAfter: 6)
 
         let modifierNote = NSTextField(wrappingLabelWithString:
             "Applies to focus, move, resize, layout and workspace shortcuts. Shift is added for the “move” variants.")
         modifierNote.font = .systemFont(ofSize: 11)
         modifierNote.textColor = .secondaryLabelColor
-        modifierNote.preferredMaxLayoutWidth = width - margin * 2 - 20
-        add(modifierNote, spacingAfter: 20)
+        add(modifierNote, spacingAfter: 8)
 
-        add(heading("ACTIONS"), spacingAfter: 8)
+        add(buttonRow([("Show the Guided Tour…", #selector(settingsShowTour)),
+                       ("Pulsar Help", #selector(showHelp))]), spacingAfter: 22)
 
-        let buttons = NSStackView()
-        buttons.orientation = .horizontal
-        buttons.spacing = 8
-        buttons.alignment = .centerY
-        // The Accessibility button only belongs here when the permission is actually missing; four
-        // buttons do not fit the window and the first one was being truncated to an ellipsis.
-        var actions: [(String, Selector)] = [("Re-tile Now", #selector(settingsRetile))]
-        if !AXIsProcessTrusted() {
-            actions.append(("Grant Accessibility…", #selector(openAccessibility)))
+        // MARK: PERMISSIONS
+
+        add(heading("PERMISSIONS"), spacingAfter: 8)
+        let trusted = AXIsProcessTrusted()
+        let status = NSTextField(wrappingLabelWithString: trusted
+            ? "✓  Accessibility granted — Pulsar can read and arrange windows."
+            : "●  Accessibility is not granted. Pulsar cannot see windows, so nothing will tile.")
+        status.font = .systemFont(ofSize: 12, weight: .medium)
+        status.textColor = trusted ? .systemGreen : .systemOrange
+        add(status, spacingAfter: 8)
+
+        if trusted {
+            add(buttonRow([("Re-tile Now", #selector(settingsRetile)),
+                           ("Relaunch Pulsar", #selector(relaunchApp))]), spacingAfter: 6)
+            let note = NSTextField(wrappingLabelWithString:
+                "macOS applies a permission only to processes started after the switch was turned on. Relaunch if tiling is not working yet.")
+            note.font = .systemFont(ofSize: 11)
+            note.textColor = .secondaryLabelColor
+            add(note, spacingAfter: 22)
+        } else {
+            add(buttonRow([("Open Accessibility Settings…", #selector(openAccessibilityPane)),
+                           ("Check Again", #selector(settingsCheckPermission))]), spacingAfter: 6)
+            let note = NSTextField(wrappingLabelWithString:
+                "In System Settings, switch Pulsar on under Privacy & Security → Accessibility, then relaunch. This line turns green when the permission is seen.")
+            note.font = .systemFont(ofSize: 11)
+            note.textColor = .secondaryLabelColor
+            add(note, spacingAfter: 22)
         }
-        actions.append(("Check for Updates…", #selector(settingsCheckForUpdates)))
-        actions.append(("Show Log", #selector(settingsShowLog)))
 
-        for (title, action) in actions {
-            let button = NSButton(title: title, target: self, action: action)
-            button.bezelStyle = .rounded
-            button.setContentHuggingPriority(.required, for: .horizontal)
-            button.setContentCompressionResistancePriority(.required, for: .horizontal)
-            buttons.addArrangedSubview(button)
-        }
-        add(buttons, spacingAfter: 14)
+        // MARK: GENERAL
 
+        add(heading("GENERAL"), spacingAfter: 8)
+        add(buttonRow([("Check for Updates…", #selector(settingsCheckForUpdates)),
+                       ("Show Log", #selector(settingsShowLog))]), spacingAfter: 12)
+
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
         let footer = NSTextField(wrappingLabelWithString:
-            "Changes apply immediately and are stored in com.devansh.pulsar.plist.")
+            "Pulsar \(version) (build \(build)) · settings are stored in com.devansh.pulsar.plist and apply immediately.")
         footer.font = .systemFont(ofSize: 11)
         footer.textColor = .tertiaryLabelColor
-        footer.preferredMaxLayoutWidth = width - margin * 2
         add(footer, spacingAfter: 0)
 
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 420),
-                              styleMask: [.titled, .closable],
-                              backing: .buffered, defer: false)
-        window.title = "Pulsar Settings"
-        // Retained by the controller, so closing must not deallocate it — otherwise the next open
-        // messages freed memory and the app dies with an unrecognised selector.
-        window.isReleasedWhenClosed = false
-        window.contentView = NSView()
-        window.contentView?.addSubview(stack)
+        scroll.documentView = content
+        window.contentView = scroll
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: window.contentView!.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: window.contentView!.bottomAnchor),
+            content.widthAnchor.constraint(equalToConstant: width - 2),
+            scroll.documentView!.topAnchor.constraint(equalTo: scroll.contentView.topAnchor, constant: 0),
         ])
-        // Fix the width rather than letting the widest row decide it.
-        stack.widthAnchor.constraint(equalToConstant: width).isActive = true
-        window.setContentSize(NSSize(width: width, height: stack.fittingSize.height))
+
+        // Size to the content when it is shorter than the screen, otherwise fill the screen.
+        content.layoutSubtreeIfNeeded()
+        let needed = stack.fittingSize.height + 36
+        let visible = (NSScreen.main?.visibleFrame.height ?? 800) - 80
+        window.setContentSize(NSSize(width: width, height: min(needed, visible)))
         window.center()
 
         settingsWindow = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc func settingsShowTour() { showOnboarding(force: true) }
+
+    @objc func settingsToggleWhatsNew(_ sender: NSButton) {
+        UserDefaults.standard.set(sender.state == .on, forKey: "showWhatsNew")
+    }
+
+    @objc func settingsCheckPermission() {
+        // Rebuild the window so the status line and buttons reflect the current answer.
+        settingsWindow?.close()
+        settingsWindow = nil
+        showSettings()
     }
 
     @objc func settingsToggleFollow(_ sender: NSButton) {
@@ -534,4 +601,9 @@ extension Controller {
     Settings are in the menu bar under “Settings…”.
     """
 
+}
+
+/// Scroll-view document view that lays out from the top instead of the bottom.
+final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
 }

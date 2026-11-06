@@ -46,8 +46,14 @@ and the whole application is one small menu-bar agent rather than a compositor.
 Download **`Pulsar.dmg`** from [Releases](https://github.com/Wizard242008/pulsar/releases), open it,
 and drag **Pulsar** into **Applications**.
 
-Launch it once from Applications. After that it starts at login through
-`~/Library/LaunchAgents/com.devansh.pulsar.plist`.
+## First run
+
+Launch it once from Applications. Pulsar opens a **four-step tour**: what it does, the one
+permission it needs, the keys, and how to get back to the guide later. The tour appears **once**,
+never again on relaunch or after an update — reopen it any time from the menu with **Getting
+Started…**, or from **Settings → Show the Guided Tour…**.
+
+After that it starts at login through `~/Library/LaunchAgents/com.devansh.pulsar.plist`.
 
 > The app is signed with a self-signed certificate rather than notarised by Apple. On first launch
 > macOS may say it cannot verify the developer: right-click the app and choose **Open** once, or run
@@ -69,13 +75,22 @@ installs it to `/Applications` and restarts it.
 
 ## Permission
 
-On first launch macOS asks for Accessibility. If the prompt was dismissed:
+Accessibility is the **only** permission Pulsar needs — not Screen Recording, not Full Disk Access,
+no admin password. It is what lets any app read another app's windows.
 
-1. Open **System Settings → Privacy & Security → Accessibility**
-2. Enable **Pulsar** — use **+** and pick `/Applications/Pulsar.app` if it is not listed
+On first launch the tour handles it. If you ever need to do it by hand:
 
-Until it is granted the app cannot read or move windows, so nothing will happen. The menu shows
-*Accessibility permission needed* in that state, and **Grant Accessibility…** opens the right pane.
+1. **Menu → Open Accessibility Settings…** (or System Settings → **Privacy & Security →
+   Accessibility** — Pulsar's button deep-links straight to that pane, not the top of the section)
+2. If **Pulsar** is not in the list, click **+** and choose `/Applications/Pulsar.app`
+3. Turn the switch next to **Pulsar** on
+4. **Relaunch Pulsar.** macOS only applies a permission to processes started *after* the switch was
+   turned on, so a grant never takes effect in the running app — this is the step people miss. The
+   tour and Settings both offer a **Relaunch Pulsar** button; you do not need to quit by hand.
+
+Until it is granted the app cannot read or move windows, so nothing will tile. The menu shows
+*Accessibility permission needed*, Settings shows the same line in orange with the two buttons, and
+the tour's status line turns green the moment the switch is on.
 
 ## Keys
 
@@ -145,6 +160,10 @@ Pulsar checks GitHub Releases once a day in the background; **Check for Updates�
 flag and relaunches. **Release Notes** opens the GitHub page instead. Accessibility permission is
 kept across updates, because the bundle identifier and signing certificate do not change.
 
+After an update, Pulsar shows a short **What's new** note listing that version's changes (read from
+`Resources/CHANGELOG.md`, so it works offline). It is shown once per version, never on an ordinary
+launch, and can be turned off in **Settings → Behaviour → Show what's new after an update**.
+
 ## Troubleshooting
 
 The log is at `~/Library/Logs/Pulsar.log`. The line that explains most problems:
@@ -193,6 +212,8 @@ swiftc -O -swift-version 5 -target arm64-apple-macos13.0 Sources/Pulsar/*.swift 
 | `Sources/Pulsar/Hotkeys.swift` | Carbon hotkey registration |
 | `Sources/Pulsar/UI.swift` | menu-bar item, menu, About |
 | `Sources/Pulsar/Settings.swift` | Settings and Help windows |
+| `Sources/Pulsar/Onboarding.swift` | first-run tour, permission deep link and relaunch |
+| `Sources/Pulsar/WhatsNew.swift` | post-update notes, read from `Resources/CHANGELOG.md` |
 | `Sources/Pulsar/Update.swift` | release check and install |
 | `Sources/Pulsar/Debug.swift` | development hooks driven by `notifyutil` |
 | `Tools/makeicon` | draws the app icon at every iconset size |

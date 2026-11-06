@@ -746,3 +746,51 @@ def _():
     frames = S.LAYOUT["cases"]["grid10"]
     eq(len(frames), 10, "ten panes")
     no_overlap([dict(x=f["x"], y=f["y"], w=f["w"], h=f["h"]) for f in frames], "ten panes")
+
+
+# --------------------------------------------------------------------- first run & update notes
+
+def _restart(wait=3.5):
+    sh("pkill -TERM -x Pulsar"); time.sleep(2.5)
+    sh("launchctl kickstart -k gui/$(id -u)/com.devansh.pulsar"); time.sleep(wait)
+
+
+def _window_titled(fragment):
+    """Does Pulsar own a window with this title? `wmpeek --ids` lists its own windows; the JSON
+    listing (used for tiling assertions) deliberately skips them."""
+    out = sh(f"{BIN}/wmpeek --ids Pulsar").stdout
+    return any(fragment in line for line in out.splitlines())
+
+
+@test("the tour is shown once and never again")
+def _():
+    try:
+        sh("defaults write com.devansh.pulsar onboardingCompleted -bool false")
+        sh("defaults write com.devansh.pulsar lastRunVersion -string 2.1.0")
+        _restart()
+        ok(_window_titled("Welcome to Pulsar"), "the first launch did not open the tour")
+        pulsar("onb-skip"); time.sleep(0.8)
+        ok(not _window_titled("Welcome to Pulsar"), "the tour did not close when skipped")
+        _restart()
+        ok(not _window_titled("Welcome to Pulsar"), "the tour reappeared on a later launch")
+    finally:
+        sh("defaults write com.devansh.pulsar onboardingCompleted -bool true")
+
+
+@test("update notes appear once per version and respect the switch")
+def _():
+    try:
+        sh("defaults write com.devansh.pulsar showWhatsNew -bool true")
+        sh("defaults write com.devansh.pulsar lastRunVersion -string 0.0.1")
+        _restart()
+        ok(_window_titled("What's new"), "an update did not show its notes")
+        _restart()
+        ok(not _window_titled("What's new"), "the same notes appeared twice")
+
+        sh("defaults write com.devansh.pulsar showWhatsNew -bool false")
+        sh("defaults write com.devansh.pulsar lastRunVersion -string 0.0.1")
+        _restart()
+        ok(not _window_titled("What's new"), "the switch did not suppress the notes")
+    finally:
+        sh("defaults write com.devansh.pulsar showWhatsNew -bool true")
+        sh("defaults write com.devansh.pulsar lastRunVersion -string $(defaults read /Applications/Pulsar.app/Contents/Info.plist CFBundleShortVersionString)")

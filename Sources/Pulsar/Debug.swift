@@ -200,6 +200,14 @@ extension Controller {
         case "probe": parkProbe()
         case "ws":    switchWorkspace(arg)
         case "move":  moveToWorkspace(arg)
+        case "onb":
+            // Drive the first-run tour without a mouse: "onb-next", "onb-skip", "onb-show".
+            switch arg {
+            case "next": advanceOnboarding()
+            case "skip": skipOnboardingTutorial()
+            case "show": showOnboarding(force: true)
+            default: break
+            }
         case "wake":  handleWake()
         case "blind":
             // Simulate an Accessibility outage: every app stops answering for N seconds. This is

@@ -223,6 +223,14 @@ extension Controller: NSMenuDelegate {
         settings.image = symbol("gearshape")
         menu.addItem(settings)
 
+        // Reopens the first-run tour. The automatic one only ever appears once, so this is the only
+        // way back to it.
+        let gettingStarted = NSMenuItem(title: "Getting Started…", action: #selector(showGettingStarted),
+                                        keyEquivalent: "")
+        gettingStarted.target = self
+        gettingStarted.image = symbol("sparkles")
+        menu.addItem(gettingStarted)
+
         let updates = NSMenuItem(title: "Check for Updates…", action: #selector(settingsCheckForUpdates),
                                  keyEquivalent: "")
         updates.target = self

@@ -39,6 +39,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp build/Pulsar.icns "$APP/Contents/Resources/Pulsar.icns"
 cp README.md "$APP/Contents/Resources/README.md"
+cp Resources/CHANGELOG.md "$APP/Contents/Resources/CHANGELOG.md"
 cp build/Pulsar "$APP/Contents/MacOS/Pulsar"
 chmod +x "$APP/Contents/MacOS/Pulsar"
 

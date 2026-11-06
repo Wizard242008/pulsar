@@ -102,6 +102,15 @@ if !duplicates().isEmpty {
 let controller = Controller()
 controller.start()
 
+// First launch: walk the user through the permission and the keys. Every later launch: a short
+// note only if the version changed, and nothing at all if that switch is off.
+DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+    controller.announceIfUpdated()
+    if !UserDefaults.standard.bool(forKey: "onboardingCompleted") {
+        controller.showOnboarding()
+    }
+}
+
 // A SIGTERM (logout, launchctl, `kill`) must not cost the arrangement. DispatchSource keeps the
 // handler off the signal context so it is safe to touch UserDefaults here.
 var signalSources: [DispatchSourceSignal] = []

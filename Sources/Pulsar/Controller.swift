@@ -1071,6 +1071,15 @@ final class Controller: NSObject {
 
     var aboutWindow: NSWindow?
     var settingsWindow: NSWindow?
+    var onboardingWindow: NSWindow?
+    var onboardingBody: NSView?
+    var onboardingNext: NSButton?
+    var onboardingBack: NSButton?
+    var onboardingSkip: NSButton?
+    var onboardingDots: NSTextField?
+    var onboardingStep = 0
+    var onboardingTimer: Timer?
+    var whatsNewWindow: NSWindow?
     var helpWindow: NSWindow?
     /// Whether to put windows back where they were on launch.
     var restoreOnLaunch = true
@@ -1108,6 +1117,8 @@ final class Controller: NSObject {
     }
 
     /// Deep link into the exact pane, so the permission is two clicks away and not a hunt.
+    @objc func showGettingStarted() { showOnboarding(force: true) }
+
     @objc func openAccessibility() {
         let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
         NSWorkspace.shared.open(url)
