@@ -45,7 +45,7 @@ cases.append(("tinyW", framesH([0.001, 0.001, 0.001], [], 1000, 500)))
 cases.append(("minFits", framesH([1, 1], [660, 100], 1000, 500)))
 cases.append(("minTight", framesH([1, 1], [400, 400], 1000, 500)))
 cases.append(("minOverflow", framesH([1, 1], [700, 700], 1000, 500)))
-cases.append(("minVertical", framesV([1, 1], [400, 620], 800, 1019)))
+cases.append(("minVertical", framesV([1, 1], [400, 600], 800, 1019)))
 cases.append(("minMismatch", framesH([1, 1, 1], [300], 900, 500)))
 cases.append(("minZero", framesH([1, 1], [0, 0], 1000, 500)))
 
@@ -61,6 +61,15 @@ cases.append(("gridTiny", grid(4, 320, 240)))
 // Minimums that cannot all fit on the screen: the layout must divide evenly rather than push the
 // last panes off the bottom edge (the "six windows on one desktop" incident).
 cases.append(("gridOverflow", grid(6, 1680, 1019, mins: [620, 660, 600, 400, 320, 200], columns: 1)))
+
+// A window that refuses to grow — System Settings caps itself at 757 pt — must not leave a gap at
+// the trailing edge: the surplus goes to the pane that can still grow.
+cases.append(("splitCapped",
+              Layout.frames(weights: [1, 1],
+                            minimums: [44, 757],     // a minimum mis-learned from an earlier clamp
+                            maximums: [.greatestFiniteMagnitude, 757],
+                            in: CGRect(x: 0, y: 0, width: 1680, height: 1019),
+                            orientation: .horizontal)))
 
 // --- neighbour logic ---
 var neighbours: [String: [String: Int?]] = [:]

@@ -875,8 +875,14 @@ final class Controller: NSObject {
         let frames: [CGRect]
         if current.count <= 2 {
             let mins = store.orientation == .horizontal ? minWidths : minHeights
+            let maxes = (store.orientation == .horizontal ? minWidths : minHeights).indices.map { i in
+                store.orientation == .horizontal
+                    ? (store.maxWidth[current[i].hash] ?? .greatestFiniteMagnitude)
+                    : (store.maxHeight[current[i].hash] ?? .greatestFiniteMagnitude)
+            }
             frames = Layout.frames(weights: current.map(\.weight),
                                    minimums: mins,
+                                   maximums: maxes,
                                    in: rect,
                                    orientation: store.orientation)
         } else {
@@ -895,6 +901,7 @@ final class Controller: NSObject {
         }
 
         var clamped = 0
+        var narrowed = 0
         for (win, frame) in zip(current, frames) {
             // Defensive: a window may have gone full-screen between refresh and apply.
             if AX.bool(win.el, "AXFullScreen" as CFString) == true { continue }
@@ -907,25 +914,88 @@ final class Controller: NSObject {
             guard let after = AX.currentFrame(win.el) else { continue }
 
             // The app clamped itself to its own minimum: it is bigger than the cell offered.
-            // Remember both dimensions so the next pass can allocate around them instead of
-            // fighting them — this is what makes the layout conform to apps like Hermes.
+            // Remember it so the next pass allocates around it instead of fighting it.
+            //
+            // Two agreeing sightings, like the maximum below: a single frame that is bigger than the
+            // cell can also be an animation in flight or a setFrame that silently did nothing.
+            // Believing one of those poisoned Helium's minimum at 1655 pt, which over-subscribed the
+            // screen and forced the even-split fallback — the exact gap this is fixing.
             if after.width > frame.width + 2 {
                 clamped += 1
-                if store.minWidth[win.hash] != after.width {
+                if let recorded = store.minWidth[win.hash], recorded >= after.width - 2 {
+                    // Already known; nothing to learn.
+                } else if let seen = store.pendingMinWidth[win.hash], abs(seen - after.width) <= 2 {
                     store.minWidth[win.hash] = after.width
+                    store.pendingMinWidth.removeValue(forKey: win.hash)
                     persistMinimum(app: win.app, width: after.width, height: nil)
                     let app = win.app.localizedName ?? "?"
                     log("min width learned: \(app) = \(Int(after.width)) (cell was \(Int(frame.width)))")
+                } else {
+                    store.pendingMinWidth[win.hash] = after.width
                 }
+            } else if let recorded = store.minWidth[win.hash], after.width < recorded - 2 {
+                // Proof the recorded minimum was wrong: the app is demonstrably narrower than the
+                // floor we invented for it. Trust the observation, not the memory.
+                store.minWidth[win.hash] = after.width
+                store.pendingMinWidth.removeValue(forKey: win.hash)
+                persistMinimum(app: win.app, width: after.width, height: nil)
+                let app = win.app.localizedName ?? "?"
+                log("min width corrected: \(app) = \(Int(after.width)) (was \(Int(recorded)))")
             }
+            // The mirror case: the app refused to *grow*. System Settings stops at 757 pt, so the
+            // cell it was given is never filled and the leftover shows as a gap at the screen edge.
+            // One sighting can be an animation in progress, so it takes two before it is believed.
+            if after.width < frame.width - 2 {
+                narrowed += 1
+                let seen = store.pendingMaxWidth[win.hash]
+                if let seen, abs(seen - after.width) <= 2, store.maxWidth[win.hash] != after.width {
+                    store.maxWidth[win.hash] = after.width
+                    store.pendingMaxWidth.removeValue(forKey: win.hash)
+                    // A minimum above the ceiling is the same number learned from the other side.
+                    if let min = store.minWidth[win.hash], min > after.width {
+                        store.minWidth[win.hash] = after.width
+                        persistMinimum(app: win.app, width: after.width, height: nil)
+                    }
+                    log("max width learned: \(win.app.localizedName ?? "?") = \(Int(after.width)) "
+                        + "(cell was \(Int(frame.width)))")
+                } else {
+                    store.pendingMaxWidth[win.hash] = after.width
+                }
+            } else if after.width > frame.width + 2 {
+                // It accepted a wider frame than it once refused: the ceiling was transient.
+                store.maxWidth.removeValue(forKey: win.hash)
+                store.pendingMaxWidth.removeValue(forKey: win.hash)
+            }
+            if after.height < frame.height - 2 {
+                let seen = store.pendingMaxHeight[win.hash]
+                if let seen, abs(seen - after.height) <= 2, store.maxHeight[win.hash] != after.height {
+                    store.maxHeight[win.hash] = after.height
+                    store.pendingMaxHeight.removeValue(forKey: win.hash)
+                } else {
+                    store.pendingMaxHeight[win.hash] = after.height
+                }
+            } else if after.height > frame.height + 2 {
+                store.maxHeight.removeValue(forKey: win.hash)
+                store.pendingMaxHeight.removeValue(forKey: win.hash)
+            }
+
             if after.height > frame.height + 2 {
                 clamped += 1
-                if store.minHeight[win.hash] != after.height && after.height > 0 {
+                if let recorded = store.minHeight[win.hash], recorded >= after.height - 2 {
+                    // known
+                } else if let seen = store.pendingMinHeight[win.hash], abs(seen - after.height) <= 2 {
                     store.minHeight[win.hash] = after.height
+                    store.pendingMinHeight.removeValue(forKey: win.hash)
                     persistMinimum(app: win.app, width: nil, height: after.height)
                     let app = win.app.localizedName ?? "?"
                     log("min height learned: \(app) = \(Int(after.height)) (cell was \(Int(frame.height)))")
+                } else {
+                    store.pendingMinHeight[win.hash] = after.height
                 }
+            } else if let recorded = store.minHeight[win.hash], after.height < recorded - 2, after.height > 0 {
+                store.minHeight[win.hash] = after.height
+                store.pendingMinHeight.removeValue(forKey: win.hash)
+                persistMinimum(app: win.app, width: nil, height: after.height)
             }
             if !frameMatches(after, frame), !refusalsLogged.contains(win.hash) {
                 refusalsLogged.insert(win.hash)
@@ -956,7 +1026,7 @@ final class Controller: NSObject {
 
         // Re-lay out with what we just learned. Bounded: each retry either reduces the column count
         // or is the last one, so this cannot spin.
-        if clamped > 0 && attempt < 2 {
+        if (clamped > 0 || narrowed > 0) && attempt < 2 {
             apply(attempt: attempt + 1)
         }
     }

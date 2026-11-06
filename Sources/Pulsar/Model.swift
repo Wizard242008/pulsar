@@ -55,6 +55,21 @@ final class Store {
     var minWidth: [CFHashCode: CGFloat] = [:]
     var minHeight: [CFHashCode: CGFloat] = [:]
 
+    /// Largest width a window has been seen to accept, for apps that refuse to grow — System
+    /// Settings stops at 757 pt whatever it is given, and the leftover space showed up as a gap at
+    /// the trailing edge of the screen. Deliberately not persisted: a maximum can be a property of
+    /// the pane the app is showing, so it is rediscovered in one pass per window instead of being
+    /// remembered across launches where it might be wrong.
+    var maxWidth: [CFHashCode: CGFloat] = [:]
+    var maxHeight: [CFHashCode: CGFloat] = [:]
+
+    /// A narrower-than-requested frame seen once. Committing to a maximum on a single observation
+    /// would catch a window mid-animation, so it takes two agreeing sightings.
+    var pendingMinWidth: [CFHashCode: CGFloat] = [:]
+    var pendingMinHeight: [CFHashCode: CGFloat] = [:]
+    var pendingMaxWidth: [CFHashCode: CGFloat] = [:]
+    var pendingMaxHeight: [CFHashCode: CGFloat] = [:]
+
     /// All windows, keyed for O(1) lookup during refresh.
     private(set) var byHash: [CFHashCode: Win] = [:]
 

@@ -3,6 +3,14 @@
 Newest first. The app reads the section matching its own version to fill the "What's new" sheet, so
 keep the heading format exactly `## <version>` and the bullets starting with `- `.
 
+## 2.1.1
+
+- An app that refuses to grow — System Settings stops at 757 pt however wide it is asked to be — no
+  longer leaves an empty strip at the right edge. The other panes take the space it will not use.
+- Minimum sizes are only believed after two agreeing sightings, and are corrected downwards when a
+  window is later seen smaller. One bad reading had inflated a window's minimum to 1655 pt, which
+  over-subscribed the screen and produced the same gap from the other direction.
+
 ## 2.1.0
 
 - Guided first run: a four-step tour covers what Pulsar does, the one permission it needs, and the keys.

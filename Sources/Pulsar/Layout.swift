@@ -17,44 +17,83 @@ enum Layout {
     /// layout honest: if the minimums can't fit, `slice` divides evenly instead.
     static let unknownMinimum: CGFloat = 44
 
-    /// Divide `total` among weighted slots, respecting per-slot minimums (water-filling).
+    /// Divide `total` among weighted slots, respecting per-slot minimums *and* maximums.
     ///
-    /// Slots that cannot get their minimum at the proportional share are pinned to it, and the
-    /// remaining space is redistributed among the rest. If the minimums alone exceed `total`, an
-    /// even split is used instead: panes stay fully on-screen. Overflowing past the bottom edge
-    /// (the old behaviour) put windows where the user could not reach them, and the app's own
-    /// geometry check then refused the frame anyway.
-    static func slice(weights: [CGFloat], minimums: [CGFloat], total: CGFloat) -> [CGFloat] {
+    /// Minimums are pinned first: slots that cannot get their minimum at the proportional share are
+    /// pinned to it, and the remaining space is redistributed among the rest. If the minimums alone
+    /// exceed `total`, an even split is used instead: panes stay fully on-screen.
+    ///
+    /// Maximums are the mirror image, and they matter just as much: an app that refuses to grow
+    /// (System Settings caps itself at 757 pt) keeps its smaller frame, so the space the layout
+    /// handed it is never used and shows up as a gap at the trailing edge. A slot at its maximum is
+    /// pinned there and the surplus goes to the slots that can still grow.
+    static func slice(weights: [CGFloat],
+                      minimums: [CGFloat],
+                      maximums: [CGFloat] = [],
+                      total: CGFloat) -> [CGFloat] {
         let n = weights.count
         guard n > 0 else { return [] }
         let safeWeights = weights.map { max($0, 0.05) }
-        let safeMins = minimums.count == n ? minimums.map { max($0, 1) } : Array(repeating: 1, count: n)
+        var safeMins = minimums.count == n ? minimums.map { max($0, 1) } : Array(repeating: 1, count: n)
+        // Maximums are the mirror of minimums. A recorded minimum can be wrong once a ceiling is
+        // known: System Settings was once seen to keep 757 pt in a smaller cell, which got learned
+        // as its minimum, and a minimum of 757 with a ceiling of 757 silently cancels the ceiling
+        // (nothing is "above" 757, so the slot looked unconstrained and took 840 again). The app
+        // demonstrably accepts its own maximum, so that is the floor whenever both are known.
+        var safeMaxes = [CGFloat](repeating: .greatestFiniteMagnitude, count: n)
+        if maximums.count == n {
+            for i in 0..<n where maximums[i] > 1 {
+                safeMaxes[i] = maximums[i]
+                safeMins[i] = min(safeMins[i], maximums[i])
+            }
+        }
 
         var result = [CGFloat](repeating: 0, count: n)
         var pending = Array(0..<n)
         var space = total
         var weightLeft = safeWeights.reduce(0, +)
 
-        // Pin every slot whose proportional share falls below its minimum, then retry.
-        var pinned = true
-        while pinned && !pending.isEmpty {
-            pinned = false
-            for i in pending where weightLeft > 0 {
-                let share = space * safeWeights[i] / weightLeft
-                if share < safeMins[i] {
-                    result[i] = safeMins[i]
-                    space -= safeMins[i]
-                    weightLeft -= safeWeights[i]
-                    pending.removeAll { $0 == i }
-                    pinned = true
-                    break
+        /// Pin every slot in `pending` whose proportional share falls below its minimum.
+        func pinMinimums() {
+            var pinned = true
+            while pinned && !pending.isEmpty {
+                pinned = false
+                for i in pending where weightLeft > 0 {
+                    let share = space * safeWeights[i] / weightLeft
+                    if share < safeMins[i] {
+                        result[i] = safeMins[i]
+                        space -= safeMins[i]
+                        weightLeft -= safeWeights[i]
+                        pending.removeAll { $0 == i }
+                        pinned = true
+                        break
+                    }
                 }
             }
         }
 
+        pinMinimums()
+
+        // Pin slots that cannot grow to their share, then re-check the minimums: taking space away
+        // from the flexible slots can push one of them under its own minimum.
+        var capped = true
+        while capped && pending.count > 0 && weightLeft > 0 {
+            capped = false
+            let scale = space / weightLeft
+            for i in pending where safeWeights[i] * scale > safeMaxes[i] + 0.5 {
+                result[i] = safeMaxes[i]
+                space -= safeMaxes[i]
+                weightLeft -= safeWeights[i]
+                pending.removeAll { $0 == i }
+                capped = true
+                break
+            }
+            if capped { pinMinimums() }
+        }
+
         if !pending.isEmpty, weightLeft > 0 {
             let scale = space / weightLeft
-            for i in pending { result[i] = max(safeWeights[i] * scale, 1) }
+            for i in pending { result[i] = max(min(safeWeights[i] * scale, safeMaxes[i]), 1) }
         } else {
             for i in pending { result[i] = safeMins[i] }
         }
@@ -75,15 +114,25 @@ enum Layout {
     /// the remainder when everything fits, so rounding leaves no seam at the trailing edge.
     static func frames(weights: [CGFloat],
                        minimums: [CGFloat],
+                       maximums: [CGFloat] = [],
                        in rect: CGRect,
                        orientation: Orientation) -> [CGRect] {
         guard !weights.isEmpty else { return [] }
-        var lengths = slice(weights: weights, minimums: minimums,
+        var lengths = slice(weights: weights, minimums: minimums, maximums: maximums,
                             total: orientation == .horizontal ? rect.width : rect.height)
         let available = orientation == .horizontal ? rect.width : rect.height
         let used = lengths.reduce(0, +)
+        // Absorb rounding, but never past a slot's own ceiling: giving the surplus to a capped
+        // window is what the app will refuse, and the seam reappears.
         if used <= available, !lengths.isEmpty {
-            lengths[lengths.count - 1] += available - used     // absorb rounding
+            var surplus = available - used
+            for i in lengths.indices.reversed() where surplus > 0.01 {
+                let ceiling = maximums.count == lengths.count ? maximums[i] : .greatestFiniteMagnitude
+                let room = max(0, ceiling - lengths[i])
+                let take = min(room, surplus)
+                lengths[i] += take
+                surplus -= take
+            }
         }
 
         var out: [CGRect] = []

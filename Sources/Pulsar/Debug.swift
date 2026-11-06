@@ -200,6 +200,30 @@ extension Controller {
         case "probe": parkProbe()
         case "ws":    switchWorkspace(arg)
         case "move":  moveToWorkspace(arg)
+        case "maxes":
+            // What the layout has learned about apps that refuse to grow.
+            for win in store.windows(store.current) {
+                let app = win.app.localizedName ?? "?"
+                let mx = store.maxWidth[win.hash].map { String(Int($0)) } ?? "-"
+                let pd = store.pendingMaxWidth[win.hash].map { String(Int($0)) } ?? "-"
+                let w = Int(win.weight * 100)
+                log("max \(app): width=\(mx) pending=\(pd) weight=\(w)")
+            }
+        case "plan":
+            // The frames the layout would apply right now, before touching any window.
+            let cur = store.windows(store.current)
+            let mins = cur.map { store.orientation == .horizontal
+                ? (store.minWidth[$0.hash] ?? Layout.unknownMinimum)
+                : (store.minHeight[$0.hash] ?? Layout.unknownMinimum) }
+            let maxes = cur.map { store.orientation == .horizontal
+                ? (store.maxWidth[$0.hash] ?? .greatestFiniteMagnitude)
+                : (store.maxHeight[$0.hash] ?? .greatestFiniteMagnitude) }
+            log("plan inputs: mins=\(mins.map { Int($0) }) maxes=\(maxes.map { $0 > 1e9 ? -1 : Int($0) }) weights=\(cur.map { Int($0.weight * 100) })")
+            let fs = Layout.frames(weights: cur.map(\.weight), minimums: mins,
+                                   maximums: maxes, in: axVisibleFrame, orientation: store.orientation)
+            for (win, f) in zip(cur, fs) {
+                log("plan \(win.app.localizedName ?? "?") x=\(Int(f.minX)) w=\(Int(f.width))")
+            }
         case "onb":
             // Drive the first-run tour without a mouse: "onb-next", "onb-skip", "onb-show".
             switch arg {

@@ -370,18 +370,24 @@ def _():
     check_frames("minTight", 2, 1000, 500, mins=[400, 400])
 
 
-@test("layout_minimums_overflow_without_overlap", "layout")
+@test("layout_minimums_overflow_stays_on_screen", "layout")
 def _():
+    # Two minimums that cannot both fit (900 + 320 on a 1000 pt screen). This used to be asserted
+    # as "overflow is expected", which is the behaviour 2.0.10 removed: running panes past the edge
+    # put the last window where it could not be reached. Now the split goes even and stays inside.
     f = [dict(x=c["x"], y=c["y"], w=c["w"], h=c["h"]) for c in case("minOverflow")]
     eq(len(f), 2, "two panes")
     no_overlap(f, "overflow")
     ok(f[1]["x"] >= f[0]["x"] + f[0]["w"] - 1, "second pane must start after the first")
-    ok(f[-1]["x"] + f[-1]["w"] > 1000, "overflow is expected: panes run past the edge")
+    close(max(r["x"] + r["w"] for r in f), 1000, "the split must end at the screen edge", tol=1)
 
 
 @test("layout_vertical_minimum_respected", "layout")
 def _():
-    check_frames("minVertical", 2, 800, 1019, mins=[400, 620], vertical=True)
+    # 400 + 600 fits inside 1019, so both minimums are honoured exactly. (It used to be 620, which
+    # sums to 1020 — one point over the screen, so the even-split fallback took over and the test
+    # was really asserting the fallback, not the minimum.)
+    check_frames("minVertical", 2, 800, 1019, mins=[400, 600], vertical=True)
 
 
 @test("layout_partial_minimum_list_padded", "layout")
@@ -494,6 +500,20 @@ def _():
     ok(bottom <= 1019 + 1, f"panes run past the visible frame (bottom={bottom})")
     smallest = min(r["h"] for r in frames)
     ok(smallest >= 100, f"a pane was squashed to {smallest} pt")
+
+
+@test("split_with_a_capped_app_fills_the_screen", "layout")
+def _():
+    # System Settings refuses to be wider than 757 pt. Before minimums *and* maximums were fed to
+    # the slice, the second pane kept its 757 and the 83 pt the layout had given it were simply
+    # lost — a gap at the trailing edge of workspace b.
+    frames = [dict(x=c["x"], y=c["y"], w=c["w"], h=c["h"]) for c in case("splitCapped")]
+    eq(len(frames), 2, "two panes")
+    no_overlap(frames, "capped split")
+    right = max(r["x"] + r["w"] for r in frames)
+    close(right, 1680, "the split must reach the right edge", tol=1)
+    eq(round(frames[1]["w"]), 757, "the capped window keeps its own width")
+    eq(round(frames[0]["w"]), 923, "the free pane absorbs the surplus")
 
 
 @test("layout_column_preference", "layout")
