@@ -731,8 +731,11 @@ def _():
 @test("layout neighbour mapping covers both directions")
 def _():
     nb = S.LAYOUT["neighbours"]
-    eq(nb["up"]["1"], 0, "up from the second is the first")
-    eq(nb["down"]["1"], 2, "down from the second is the third")
+    # In a single row there is no pane above or below; left/right step along the row.
+    eq(nb["up"]["1"], None, "no pane above the second in a row")
+    eq(nb["down"]["1"], None, "no pane below the second in a row")
+    eq(nb["right"]["1"], 2, "right from the second is the third")
+    eq(nb["left"]["1"], 0, "left from the second is the first")
     eq(nb["up"]["0"], None, "up from the first has no target")
 
 

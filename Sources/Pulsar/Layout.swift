@@ -216,17 +216,49 @@ enum Layout {
         return max(1, Int((Double(n).squareRoot() * 1.15).rounded(.up)))
     }
 
-    /// Neighbour index in a direction, for focus and move.
-    static func neighbour(from index: Int, count: Int, direction: Direction,
-                          orientation: Orientation) -> Int? {
-        guard count > 0 else { return nil }
-        let forward: Bool
-        switch direction {
-        case .left, .up:  forward = false
-        case .right, .down: forward = true
+    /// Index of the pane that sits in `direction` from pane `index`, for focus and move.
+    ///
+    /// Geometry decides, not list position: in a grid, "right" of the last pane in a row is not the
+    /// first pane of the next row, and in a vertical split "left" has no neighbour at all. Among the
+    /// panes that lie in that direction, the nearest one wins; ties go to the pane that overlaps the
+    /// source most along the perpendicular axis, so a tall pane is not skipped for a short one.
+    static func neighbour(from index: Int, frames: [CGRect], direction: Direction) -> Int? {
+        guard frames.indices.contains(index) else { return nil }
+        let src = frames[index]
+        var best: (index: Int, gap: CGFloat, overlap: CGFloat)?
+
+        for (i, f) in frames.enumerated() where i != index {
+            let gap: CGFloat
+            let overlap: CGFloat
+            switch direction {
+            case .left:
+                gap = src.minX - f.maxX
+                overlap = min(src.maxY, f.maxY) - max(src.minY, f.minY)
+            case .right:
+                gap = f.minX - src.maxX
+                overlap = min(src.maxY, f.maxY) - max(src.minY, f.minY)
+            case .up:
+                gap = src.minY - f.maxY
+                overlap = min(src.maxX, f.maxX) - max(src.minX, f.minX)
+            case .down:
+                gap = f.minY - src.maxY
+                overlap = min(src.maxX, f.maxX) - max(src.minX, f.minX)
+            }
+            // Panes never overlap, so `gap` is the distance between facing edges. A pane that is
+            // not strictly in the direction (gap < 0) or that shares no edge line (overlap <= 0)
+            // is not a neighbour.
+            guard gap >= -1, overlap > 1 else { continue }
+            let candidate = (index: i, gap: max(gap, 0), overlap: overlap)
+            if let current = best {
+                if candidate.gap < current.gap - 1
+                    || (abs(candidate.gap - current.gap) <= 1 && candidate.overlap > current.overlap) {
+                    best = candidate
+                }
+            } else {
+                best = candidate
+            }
         }
-        let candidate = forward ? index + 1 : index - 1
-        return (candidate >= 0 && candidate < count) ? candidate : nil
+        return best?.index
     }
 }
 

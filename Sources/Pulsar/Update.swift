@@ -133,30 +133,41 @@ enum Updater {
                 return
             }
 
+            // Every path past this point must detach the image. A failed copy used to return early
+            // and leave the volume mounted until the next reboot.
+            func detach() {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
+                process.arguments = ["detach", mountPoint.path, "-quiet", "-force"]
+                try? process.run()
+                process.waitUntilExit()
+            }
+
             let staged = work.appendingPathComponent("Pulsar.app")
             try? FileManager.default.removeItem(at: staged)
             let copy = Process()
             copy.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
             copy.arguments = [mountPoint.appendingPathComponent("Pulsar.app").path, staged.path]
-            do { try copy.run(); copy.waitUntilExit() } catch {
+            let copied = (try? copy.run()) != nil
+            if copied { copy.waitUntilExit() }
+            detach()
+            guard copied, copy.terminationStatus == 0 else {
                 DispatchQueue.main.async { completion("Could not copy the new app") }
                 return
             }
-
-            let detach = Process()
-            detach.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
-            detach.arguments = ["detach", mountPoint.path, "-quiet", "-force"]
-            try? detach.run()
 
             guard FileManager.default.fileExists(atPath: staged.path) else {
                 DispatchQueue.main.async { completion("The disk image did not contain Pulsar.app") }
                 return
             }
 
+            // The script waits for this process to exit before swapping. Without the wait, `open`
+            // only activates the old instance, and the new one quits on the single-instance check.
+            let oldPid = ProcessInfo.processInfo.processIdentifier
             let script = work.appendingPathComponent("swap.sh")
             let body = """
             #!/bin/bash
-            sleep 0.4
+            for _ in $(seq 1 50); do kill -0 \(oldPid) 2>/dev/null || break; sleep 0.2; done
             rm -rf /Applications/Pulsar.app
             /usr/bin/ditto "\(staged.path)" /Applications/Pulsar.app
             /usr/bin/xattr -dr com.apple.quarantine /Applications/Pulsar.app 2>/dev/null

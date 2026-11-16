@@ -130,6 +130,14 @@ extension Controller {
             back.centerYAnchor.constraint(equalTo: next.centerYAnchor),
         ])
 
+        // Closing the window with its red button must stop the 1 Hz permission poll too. The
+        // poll used to keep running for the life of the process, waking an idle app every second.
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification,
+                                               object: window, queue: .main) { [weak self] _ in
+            self?.onboardingTimer?.invalidate()
+            self?.onboardingTimer = nil
+            self?.onboardingWindow = nil
+        }
         onboardingWindow = window
         onboardingBody = body
         onboardingNext = next

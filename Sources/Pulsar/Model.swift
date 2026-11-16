@@ -98,6 +98,17 @@ final class Store {
         workspaces[name] = list
     }
 
+    /// Exchange two windows' slots on the same workspace. Used by directional move, where the
+    /// target can be any pane in the grid, not just the adjacent list entry.
+    func swap(_ a: Win, _ b: Win) {
+        guard a !== b, a.workspace == b.workspace,
+              var list = workspaces[a.workspace],
+              let i = list.firstIndex(where: { $0 === a }),
+              let j = list.firstIndex(where: { $0 === b }) else { return }
+        list.swapAt(i, j)
+        workspaces[a.workspace] = list
+    }
+
     func index(of win: Win) -> Int? {
         windows(win.workspace).firstIndex { $0 === win }
     }

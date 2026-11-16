@@ -530,3 +530,28 @@ def _():
     eq(nb["left"]["0"], None, "no neighbour to the left of the first")
     eq(nb["right"]["2"], None, "no neighbour to the right of the last")
     eq(nb["right"]["0"], 1, "right of the first is the second")
+
+
+@test("layout_neighbour_row_has_no_vertical_neighbour", "layout")
+def _():
+    # Regression: the old index-based neighbour sent `j`/`k` sideways in a side-by-side split.
+    nb = LAYOUT["neighbours"]
+    for i in ("0", "1", "2"):
+        eq(nb["down"][i], None, f"no pane below pane {i} in a single row")
+        eq(nb["up"][i], None, f"no pane above pane {i} in a single row")
+
+
+@test("layout_neighbour_grid_follows_geometry", "layout")
+def _():
+    # Regression: in a 2x2 grid, "right" of the last pane in a row used to wrap into the next row,
+    # and "down" stepped one index instead of one row. Panes are row-major: 0 1 / 2 3.
+    g = LAYOUT["gridNeighbours"]
+    eq(g["down"]["0"], 2, "down from top-left is bottom-left")
+    eq(g["down"]["1"], 3, "down from top-right is bottom-right")
+    eq(g["right"]["0"], 1, "right from top-left is top-right")
+    eq(g["right"]["1"], None, "right of the top-right pane is nothing (no wrap)")
+    eq(g["right"]["2"], 3, "right from bottom-left is bottom-right")
+    eq(g["left"]["3"], 2, "left from bottom-right is bottom-left")
+    eq(g["left"]["2"], None, "left of the bottom-left pane is nothing (no wrap)")
+    eq(g["up"]["2"], 0, "up from bottom-left is top-left")
+    eq(g["up"]["3"], 1, "up from bottom-right is top-right")

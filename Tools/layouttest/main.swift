@@ -71,13 +71,20 @@ cases.append(("splitCapped",
                             in: CGRect(x: 0, y: 0, width: 1680, height: 1019),
                             orientation: .horizontal)))
 
-// --- neighbour logic ---
+// --- neighbour logic: geometry-based, over a 3-pane row and a 2x2 grid ---
+let row3 = Layout.frames(weights: [1, 1, 1], minimums: [1, 1, 1],
+                         in: CGRect(x: 0, y: 0, width: 900, height: 600), orientation: .horizontal)
+let grid4 = Layout.grid(weights: [1, 1, 1, 1], minWidths: [1, 1, 1, 1], minHeights: [1, 1, 1, 1],
+                        in: CGRect(x: 0, y: 0, width: 1000, height: 800), columns: 2)
 var neighbours: [String: [String: Int?]] = [:]
+var gridNeighbours: [String: [String: Int?]] = [:]
 for dir in [Direction.left, .right, .up, .down] {
-    let name = "\(dir)"
     var row: [String: Int?] = [:]
-    for i in 0..<3 { row["\(i)"] = Layout.neighbour(from: i, count: 3, direction: dir, orientation: .horizontal) }
-    neighbours[name] = row
+    var grid: [String: Int?] = [:]
+    for i in 0..<3 { row["\(i)"] = Layout.neighbour(from: i, frames: row3, direction: dir) }
+    for i in 0..<4 { grid["\(i)"] = Layout.neighbour(from: i, frames: grid4, direction: dir) }
+    neighbours["\(dir)"] = row
+    gridNeighbours["\(dir)"] = grid
 }
 
 var out: [String: Any] = [:]
@@ -88,6 +95,6 @@ for (name, rects) in cases {
 var columns: [String: Int] = [:]
 for n in 1...12 { columns["\(n)"] = Layout.preferredColumns(for: n) }
 
-let payload: [String: Any] = ["cases": out, "neighbours": neighbours, "columns": columns]
+let payload: [String: Any] = ["cases": out, "neighbours": neighbours, "gridNeighbours": gridNeighbours, "columns": columns]
 let data = try! JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
 print(String(data: data, encoding: .utf8)!)

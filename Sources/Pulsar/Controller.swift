@@ -1069,12 +1069,18 @@ final class Controller: NSObject {
         return list[0]
     }
 
+    /// Pane geometry on the current workspace, in list order: the same frames `apply` lays out, so
+    /// directional commands follow what is on screen rather than the order windows were added.
+    private func currentPaneFrames(_ list: [Win]) -> [CGRect] {
+        list.map { $0.frame }
+    }
+
     func focus(_ direction: Direction) {
         refresh()
         let list = store.windows(store.current)
         guard let win = focused(), let i = list.firstIndex(where: { $0 === win }) else { return }
-        guard let j = Layout.neighbour(from: i, count: list.count, direction: direction,
-                                       orientation: store.orientation) else { return }
+        guard let j = Layout.neighbour(from: i, frames: currentPaneFrames(list),
+                                       direction: direction) else { return }
         setFocus(list[j])
     }
 
@@ -1082,9 +1088,10 @@ final class Controller: NSObject {
         refresh()
         let list = store.windows(store.current)
         guard let win = focused(), let i = list.firstIndex(where: { $0 === win }) else { return }
-        guard let j = Layout.neighbour(from: i, count: list.count, direction: direction,
-                                       orientation: store.orientation) else { return }
-        store.move(win, to: store.current, at: j)
+        guard let j = Layout.neighbour(from: i, frames: currentPaneFrames(list),
+                                       direction: direction) else { return }
+        // Swap with the neighbour: the window takes the neighbour's slot and vice versa.
+        store.swap(win, list[j])
         apply()
         setFocus(win)
         saveImmediately()

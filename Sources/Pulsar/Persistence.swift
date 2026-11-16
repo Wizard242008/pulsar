@@ -136,7 +136,14 @@ extension Controller {
         }
 
         // Titles drift forever; cap the history so the file cannot grow without bound.
-        if windows.count > 400 { windows = windows.filter { weights[$0.key] != nil || $0.value == store.current } }
+        // Keep only keys for windows that are still tracked. The previous filter tested
+        // `weights[key] != nil`, but both maps are written from the same keys, so it was always
+        // true and the history grew without bound.
+        if windows.count > 400 {
+            let live = Set(store.byHash.values.map { windowKey($0) })
+            windows = windows.filter { live.contains($0.key) }
+            weights = weights.filter { live.contains($0.key) }
+        }
 
         defaults.set(windows, forKey: "windowWorkspaces")
         defaults.set(apps, forKey: "appWorkspaces")

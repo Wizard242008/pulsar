@@ -3,6 +3,17 @@
 Newest first. The app reads the section matching its own version to fill the "What's new" sheet, so
 keep the heading format exactly `## <version>` and the bullets starting with `- `.
 
+## 2.1.2
+
+- Directional focus and move follow the panes on screen. In a grid, `h j k l` now go to the pane
+  actually to the left, right, above or below, instead of stepping through the list one index at a time.
+- Directional move swaps the two panes' places, so the window moves where you pointed.
+- Updates install reliably: the new build waits for the old one to quit before it is started, so the
+  update no longer ends with no running Pulsar.
+- A failed update no longer leaves the disk image mounted.
+- Closing the Welcome window stops its permission check, so an idle Pulsar no longer wakes once a second.
+- The saved window history is trimmed as intended instead of growing without limit.
+
 ## 2.1.1
 
 - An app that refuses to grow — System Settings stops at 757 pt however wide it is asked to be — no
