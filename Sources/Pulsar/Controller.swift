@@ -370,6 +370,7 @@ final class Controller: NSObject {
                     // restoring its own frame, a user drag, a zoom). Re-read the truth here:
                     // trusting a cached frame is what made windows overlap and stay overlapped.
                     if let actual = AX.currentFrame(el) { tracked.frame = actual }
+                    tracked.visible = !app.isHidden
                     if AX.bool(el, kAXFocusedAttribute as CFString) == true { lastFocused = tracked }
                 } else if seen.insert(hash).inserted {
                     found.append((el, pid, app))
@@ -509,6 +510,9 @@ final class Controller: NSObject {
             // regular apps: a menu-bar (accessory) app has no Cmd-H state, so an empty answer with
             // the window absent means it was ordered out and its pane must be released.
             if win.app.isHidden, win.app.activationPolicy == .regular {
+                // Keep the entry — Cmd-H must not lose the workspace — but stop it holding a
+                // pane: a hidden window is not part of the screen anyone is looking at.
+                win.visible = false
                 missedScans[hash] = 0
                 continue
             }
@@ -861,7 +865,9 @@ final class Controller: NSObject {
     func apply(attempt: Int = 0) {
         guard enabled else { return }
         let rect = axVisibleFrame
-        let current = store.windows(store.current)
+        // Invisible windows (hidden app, ordered-out utility) keep their workspace but take no
+        // space; otherwise the window beside them stays pinned at part width forever.
+        let current = store.windows(store.current).filter { $0.visible }
         if current.isEmpty {
             // Nothing to tile here, but other workspaces are still hidden: bailing out early left
             // their windows sitting over this one.

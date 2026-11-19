@@ -1,3 +1,10 @@
+## 2.1.4
+
+- A hidden window no longer holds a pane. Apps that hide themselves — Cmd-H, or a menu-bar
+  utility that keeps its window alive instead of closing it — stay tracked with their workspace
+  intact, but the layout ignores them while they are invisible, so the window beside them expands
+  to the full width and contracts again when they come back.
+
 ## 2.1.3
 
 - Closing a menu-bar app's window no longer leaves the other window stuck at part width. Tailscale

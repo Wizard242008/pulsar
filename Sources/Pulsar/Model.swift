@@ -19,6 +19,10 @@ final class Win {
     var workspace: String
     var weight: CGFloat = 1
     var frame: CGRect = .zero
+    /// Whether the window is on screen *here and now*. A hidden app (Cmd-H) or a utility that
+    /// orders its window out keeps its entry and its workspace — but it must not hold a pane in
+    /// the layout while it is invisible, or its neighbour stays stuck at part width.
+    var visible = true
 
     init(el: AXUIElement, pid: pid_t, app: NSRunningApplication, workspace: String) {
         self.el = el
