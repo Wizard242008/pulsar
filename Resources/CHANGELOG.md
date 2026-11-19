@@ -1,3 +1,12 @@
+## 2.1.3
+
+- Closing a menu-bar app's window no longer leaves the other window stuck at part width. Tailscale
+  (and anything else that shows a window and then orders it out instead of destroying it) is covered:
+  a window we already track keeps being swept even after its app drops back to accessory policy, so
+  the pane it was holding is released and the neighbour expands to the full width.
+- Directional focus follows the screen, not the window list, and the update installer waits for the
+  old process to exit before swapping the bundle.
+
 # Changelog
 
 Newest first. The app reads the section matching its own version to fill the "What's new" sheet, so

@@ -332,9 +332,17 @@ final class Controller: NSObject {
         var seen = Set<CFHashCode>()
 
         for app in NSWorkspace.shared.runningApplications {
-            guard app.activationPolicy == .regular,
-                  app.processIdentifier != getpid() else { continue }
-            let pid = app.processIdentifier
+            let thisPid = app.processIdentifier
+            // Sweep regular apps, plus any app we already hold a window for. Accessory
+            // (menu-bar) apps own no tiled windows and adopting a popover as a pane is worse
+            // than ignoring it — but a window once adopted from one has to keep being swept, or
+            // it is never pruned when its owner orders it out instead of destroying it. Closing
+            // Tailscale's window left a 600 pt pane in the plan and Helium pinned at 1080 pt on
+            // a 1680 pt screen, because the sweep skipped the app that owned the orphan.
+            let alreadyTracked = store.byHash.values.contains { $0.pid == thisPid }
+            guard app.activationPolicy == .regular || alreadyTracked,
+                  thisPid != getpid() else { continue }
+            let pid = thisPid
             if let only, only != pid { continue }
             ensureObserver(for: app)
             // nil means the app never answered: a Space transition, a full-screen animation, or a
@@ -497,8 +505,10 @@ final class Controller: NSObject {
             }
             // A hidden app reports no windows at all, which is not the same as having closed them.
             // Forgetting them here meant Cmd-H lost the window's workspace, and unhiding dumped it
-            // onto whatever workspace happened to be current.
-            if win.app.isHidden {
+            // onto whatever workspace happened to be current. That reasoning only applies to
+            // regular apps: a menu-bar (accessory) app has no Cmd-H state, so an empty answer with
+            // the window absent means it was ordered out and its pane must be released.
+            if win.app.isHidden, win.app.activationPolicy == .regular {
                 missedScans[hash] = 0
                 continue
             }
